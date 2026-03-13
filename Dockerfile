@@ -1,21 +1,24 @@
 FROM node:20-alpine
+
 RUN apk add --no-cache python3 curl ffmpeg bash
 
-# Download yt-dlp
+# Install yt-dlp
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# yt-dlp config: use node as JS runtime (node binary is at /usr/local/bin/node in node:alpine)
+# Verify node path and create yt-dlp config pointing to it
+RUN which node && node --version
 RUN mkdir -p /root/.config/yt-dlp \
-    && echo '--js-runtimes nodejs' > /root/.config/yt-dlp/config
+    && echo "--js-runtimes nodejs:$(which node)" > /root/.config/yt-dlp/config \
+    && cat /root/.config/yt-dlp/config
 
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
 COPY . .
 
-# Startup script: self-update yt-dlp then start server
-RUN printf '#!/bin/sh\necho "Updating yt-dlp..."\nyt-dlp -U || true\necho "Starting server..."\nexec node server.js\n' > /app/start.sh \
+# Runtime startup: update yt-dlp to latest, then start
+RUN printf '#!/bin/sh\necho "==> node path: $(which node)"\necho "==> yt-dlp version before update: $(yt-dlp --version)"\nyt-dlp -U 2>&1 || true\necho "==> yt-dlp version after update: $(yt-dlp --version)"\necho "==> yt-dlp config:"\ncat /root/.config/yt-dlp/config\nexec node server.js\n' > /app/start.sh \
     && chmod +x /app/start.sh
 
 EXPOSE 8080
