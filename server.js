@@ -41,11 +41,16 @@ function extractPlaylistId(url) {
 /* ── Get yt-dlp path ── */
 function getYtDlpPath() {
   if (process.platform === 'win32') return path.join(__dirname, 'yt-dlp.exe');
-  // On Linux (Railway/Docker), use system-installed yt-dlp
   return '/usr/local/bin/yt-dlp';
 }
 
-/* ── Spotify playlist endpoint — parses embed iframe JSON (no auth, no Premium) ── */
+/* ── Get cookies path ── */
+function getCookiesPath() {
+  if (process.platform === 'win32') return path.join(__dirname, 'www.youtube.com_cookies.txt');
+  return '/app/www.youtube.com_cookies.txt';
+}
+
+/* ── Spotify playlist endpoint ── */
 app.post('/spotify/playlist', async (req, res) => {
   try {
     const { url } = req.body;
@@ -166,7 +171,7 @@ app.get('/search', async (req, res) => {
     }
   }
   const ytDlpPath = getYtDlpPath();
-  const ytdlp = spawn(ytDlpPath, [`ytsearch10:${query}`, '--get-id', '--get-title', '--skip-download'], { shell: false });
+  const ytdlp = spawn(ytDlpPath, [`ytsearch10:${query}`, '--get-id', '--get-title', '--skip-download', '--cookies', getCookiesPath()], { shell: false });
   let out = '';
   ytdlp.stdout.on('data', d => out += d.toString());
   ytdlp.on('close', code => {
@@ -184,7 +189,7 @@ app.get('/stream', (req, res) => {
   const videoId = req.query.id;
   if (!videoId) return res.status(400).json({ error: 'Missing video ID.' });
   const ytDlpPath = getYtDlpPath();
-  const ytdlp = spawn(ytDlpPath, ['-o', '-', `https://www.youtube.com/watch?v=${videoId}`], { shell: false });
+  const ytdlp = spawn(ytDlpPath, ['-o', '-', '--cookies', getCookiesPath(), `https://www.youtube.com/watch?v=${videoId}`], { shell: false });
   res.setHeader('Content-Type', 'video/mp4');
   ytdlp.stdout.pipe(res);
   ytdlp.stderr.on('data', d => console.error('[yt-dlp stream]', d.toString()));
@@ -197,7 +202,8 @@ function resolveTrackId(ytDlpPath, songTitle) {
     const ytdlp = spawn(ytDlpPath, [
       `ytsearch5:${songTitle} official audio`,
       '--get-id', '--get-title', '--get-duration',
-      '--skip-download', '--no-playlist'
+      '--skip-download', '--no-playlist',
+      '--cookies', getCookiesPath()
     ], { shell: false });
 
     let out = '';
@@ -271,6 +277,7 @@ app.get('/download', async (req, res) => {
       '-f', format,
       '--no-playlist',
       '--no-part',
+      '--cookies', getCookiesPath(),
       '--extractor-args', `youtube:player_client=${client}`,
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--retries', '2',
@@ -282,10 +289,11 @@ app.get('/download', async (req, res) => {
   }
 
   const attempts = [
-  { args: buildArgs('tv_embedded', 'bestaudio[ext=m4a]/bestaudio'), ext: 'm4a', mime: 'audio/mp4', label: 'tv_embedded' },
-  { args: buildArgs('ios', 'bestaudio[ext=m4a]/bestaudio'), ext: 'm4a', mime: 'audio/mp4', label: 'ios' },
-  { args: buildArgs('android', 'bestaudio'), ext: 'm4a', mime: 'audio/mp4', label: 'android' },
-];
+    { args: buildArgs('tv_embedded', 'bestaudio[ext=m4a]/bestaudio'),                            ext: 'm4a', mime: 'audio/mp4',  label: 'tv_embedded' },
+    { args: buildArgs('ios',         'bestaudio[ext=m4a]/bestaudio'),                            ext: 'm4a', mime: 'audio/mp4',  label: 'ios'         },
+    { args: buildArgs('android',     'bestaudio'),                                                ext: 'm4a', mime: 'audio/mp4',  label: 'android'     },
+    { args: buildArgs('web',         'bestaudio', ['--extract-audio', '--audio-format', 'mp3']), ext: 'mp3', mime: 'audio/mpeg', label: 'web/mp3'      },
+  ];
 
   let attemptIndex = 0;
 
