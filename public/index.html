@@ -1741,11 +1741,11 @@ function renderSpotifyMirror() {
   });
 
   const hasPending = spotifyPlaylist.some(x => x.status === "pending");
-  const isSpotifyQueueRunning = spotifyPlaylist.some(x => x.status === "downloading");
-  if (spotifyDlBtn) spotifyDlBtn.disabled = isSpotifyQueueRunning || !hasPending;
-  if (spotifyClearBtn) spotifyClearBtn.disabled = isSpotifyQueueRunning;
+  const _qRunning = typeof isSpotifyQueueRunning !== 'undefined' && isSpotifyQueueRunning;
+  if (spotifyDlBtn) spotifyDlBtn.disabled = _qRunning || !hasPending;
+  if (spotifyClearBtn) spotifyClearBtn.disabled = _qRunning;
   if (spotifyStopBtn2) {
-    if (isSpotifyQueueRunning) { spotifyStopBtn2.disabled = false; spotifyDlBtn && spotifyDlBtn.classList.add("hidden"); }
+    if (_qRunning) { spotifyStopBtn2.disabled = false; spotifyDlBtn && spotifyDlBtn.classList.add("hidden"); }
     else { spotifyStopBtn2.disabled = true; spotifyDlBtn && spotifyDlBtn.classList.remove("hidden"); }
   }
 }
@@ -1838,13 +1838,68 @@ if (spotifyMirror) {
   });
 }
 
-// Download All from Spotify tab (reuses same queue logic)
+// Download All from Spotify tab — runs its own queue over spotifyPlaylist
+let isSpotifyQueueRunning = false;
+let stopSpotifyQueueRequested = false;
+const spotifyDownloadControllers = {};
+
 if (spotifyDlBtn) {
-  spotifyDlBtn.onclick = () => { document.getElementById('startQueueBtn').click(); };
+  spotifyDlBtn.onclick = async () => {
+    if (isSpotifyQueueRunning) return;
+    isSpotifyQueueRunning = true;
+    stopSpotifyQueueRequested = false;
+    renderSpotifyMirror();
+
+    for (const t of spotifyPlaylist) {
+      if (stopSpotifyQueueRequested) break;
+      if (t.status !== 'pending') continue;
+
+      t.status = 'downloading';
+      renderSpotifyMirror();
+
+      try {
+        const controller = new AbortController();
+        spotifyDownloadControllers[t.id] = controller;
+
+        const r = await fetch(`/download?id=${encodeURIComponent(t.id)}&title=${encodeURIComponent(t.title)}`, { signal: controller.signal });
+        if (stopSpotifyQueueRequested) { t.status = 'pending'; renderSpotifyMirror(); break; }
+        if (!r.ok) throw new Error('Download failed');
+
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = t.title + '.mp3';
+        a.click();
+        URL.revokeObjectURL(url);
+        t.status = 'done';
+      } catch (err) {
+        t.status = err && err.name === 'AbortError' ? 'pending' : 'error';
+      } finally {
+        try { delete spotifyDownloadControllers[t.id]; } catch(e) {}
+      }
+
+      saveSpotify();
+      renderSpotifyMirror();
+      await new Promise(res => setTimeout(res, 200));
+    }
+
+    isSpotifyQueueRunning = false;
+    stopSpotifyQueueRequested = false;
+    renderSpotifyMirror();
+  };
 }
+
 // Stop from Spotify tab
 if (spotifyStopBtn2) {
-  spotifyStopBtn2.onclick = () => { document.getElementById('stopQueueBtn').click(); };
+  spotifyStopBtn2.onclick = () => {
+    stopSpotifyQueueRequested = true;
+    spotifyStopBtn2.disabled = true;
+    Object.keys(spotifyDownloadControllers).forEach(k => {
+      try { spotifyDownloadControllers[k].abort(); } catch(e) {}
+      try { delete spotifyDownloadControllers[k]; } catch(e) {}
+    });
+  };
 }
 // Clear from Spotify tab
 if (spotifyClearBtn) {
