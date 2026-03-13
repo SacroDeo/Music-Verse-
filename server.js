@@ -282,10 +282,10 @@ app.get('/download', async (req, res) => {
   }
 
   const attempts = [
-    { args: buildArgs('tv_embedded', 'bestaudio[ext=m4a]/bestaudio'),                              ext: 'm4a', mime: 'audio/mp4',  label: 'tv_embedded' },
-    { args: buildArgs('mweb',        'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio'),           ext: 'm4a', mime: 'audio/mp4',  label: 'mweb'        },
-    { args: buildArgs('web',         'bestaudio', ['--extract-audio', '--audio-format', 'mp3']),    ext: 'mp3', mime: 'audio/mpeg', label: 'web/mp3'      },
-  ];
+  { args: buildArgs('tv_embedded', 'bestaudio[ext=m4a]/bestaudio'), ext: 'm4a', mime: 'audio/mp4', label: 'tv_embedded' },
+  { args: buildArgs('ios', 'bestaudio[ext=m4a]/bestaudio'), ext: 'm4a', mime: 'audio/mp4', label: 'ios' },
+  { args: buildArgs('android', 'bestaudio'), ext: 'm4a', mime: 'audio/mp4', label: 'android' },
+];
 
   let attemptIndex = 0;
 
