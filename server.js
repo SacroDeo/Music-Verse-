@@ -272,16 +272,15 @@ app.get('/download', async (req, res) => {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   console.log(`⬇ Downloading: "${safeTitle}" → ${videoUrl}`);
 
-  function buildArgs(client, format, extraArgs = []) {
+  function buildArgs(format, extraArgs = []) {
     return [
       '-f', format,
       '--no-playlist',
       '--no-part',
       '--cookies', getCookiesPath(),
-      '--extractor-args', `youtube:player_client=${client}`,
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-      '--retries', '2',
-      '--fragment-retries', '2',
+      '--retries', '3',
+      '--fragment-retries', '3',
       ...extraArgs,
       '-o', '-',
       videoUrl
@@ -289,10 +288,9 @@ app.get('/download', async (req, res) => {
   }
 
   const attempts = [
-    { args: buildArgs('tv_embedded', 'bestaudio[ext=m4a]/bestaudio'),                            ext: 'm4a', mime: 'audio/mp4',  label: 'tv_embedded' },
-    { args: buildArgs('ios',         'bestaudio[ext=m4a]/bestaudio'),                            ext: 'm4a', mime: 'audio/mp4',  label: 'ios'         },
-    { args: buildArgs('android',     'bestaudio'),                                                ext: 'm4a', mime: 'audio/mp4',  label: 'android'     },
-    { args: buildArgs('web',         'bestaudio', ['--extract-audio', '--audio-format', 'mp3']), ext: 'mp3', mime: 'audio/mpeg', label: 'web/mp3'      },
+    { args: buildArgs('140'),                                                ext: 'm4a', mime: 'audio/mp4',  label: 'm4a-140'  },
+    { args: buildArgs('bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio'), ext: 'm4a', mime: 'audio/mp4',  label: 'bestaudio' },
+    { args: buildArgs('bestaudio', ['--extract-audio', '--audio-format', 'mp3']), ext: 'mp3', mime: 'audio/mpeg', label: 'mp3-fallback' },
   ];
 
   let attemptIndex = 0;
