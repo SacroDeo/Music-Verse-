@@ -278,6 +278,7 @@ app.get('/download', async (req, res) => {
       '--no-playlist',
       '--no-part',
       '--cookies', getCookiesPath(),
+      '--js-runtimes', 'nodejs',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--retries', '3',
       '--fragment-retries', '3',
@@ -288,9 +289,9 @@ app.get('/download', async (req, res) => {
   }
 
   const attempts = [
-    { args: buildArgs('140'),                                                ext: 'm4a', mime: 'audio/mp4',  label: 'm4a-140'  },
-    { args: buildArgs('bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio'), ext: 'm4a', mime: 'audio/mp4',  label: 'bestaudio' },
-    { args: buildArgs('bestaudio', ['--extract-audio', '--audio-format', 'mp3']), ext: 'mp3', mime: 'audio/mpeg', label: 'mp3-fallback' },
+    { args: buildArgs('140'),                                                          ext: 'm4a', mime: 'audio/mp4',  label: 'm4a-140'     },
+    { args: buildArgs('bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio'),            ext: 'm4a', mime: 'audio/mp4',  label: 'bestaudio'   },
+    { args: buildArgs('bestaudio', ['--extract-audio', '--audio-format', 'mp3']),     ext: 'mp3', mime: 'audio/mpeg', label: 'mp3-fallback' },
   ];
 
   let attemptIndex = 0;
