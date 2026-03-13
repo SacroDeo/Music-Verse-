@@ -272,8 +272,7 @@ app.get('/download', async (req, res) => {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   console.log(`⬇ Downloading: "${safeTitle}" → ${videoUrl}`);
 
-  // Resolve node path once for js-runtimes flag
-  const nodePath = process.execPath; // full path to node binary running this server
+  const nodePath = process.execPath;
 
   function buildArgs(format, extraArgs = []) {
     return [
@@ -281,7 +280,7 @@ app.get('/download', async (req, res) => {
       '--no-playlist',
       '--no-part',
       '--cookies', getCookiesPath(),
-      '--js-runtimes', `nodejs:${nodePath}`,
+      '--js-runtimes', `node:${nodePath}`,
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--retries', '3',
       '--fragment-retries', '3',
