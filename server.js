@@ -38,6 +38,13 @@ function extractPlaylistId(url) {
   return m ? m[1] : null;
 }
 
+/* ── Get yt-dlp path ── */
+function getYtDlpPath() {
+  if (process.platform === 'win32') return path.join(__dirname, 'yt-dlp.exe');
+  // On Linux (Railway/Docker), use system-installed yt-dlp
+  return '/usr/local/bin/yt-dlp';
+}
+
 /* ── Spotify playlist endpoint — parses embed iframe JSON (no auth, no Premium) ── */
 app.post('/spotify/playlist', async (req, res) => {
   try {
@@ -47,8 +54,6 @@ app.post('/spotify/playlist', async (req, res) => {
     const playlistId = extractPlaylistId(url);
     if (!playlistId) return res.status(400).json({ error: 'Invalid Spotify playlist URL' });
 
-    // Use Spotify's embed endpoint — returns a full HTML page with __NEXT_DATA__ JSON
-    // This works because the embed is meant to be loaded in iframes on any site
     const embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
     console.log('Fetching embed:', embedUrl);
 
@@ -74,10 +79,8 @@ app.post('/spotify/playlist', async (req, res) => {
       return res.status(400).json({ error: `Spotify embed returned ${r.status}. Playlist may be private.` });
     }
 
-    // Extract __NEXT_DATA__ JSON blob
     const match = r.body.match(/<script id="__NEXT_DATA__"[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/);
     if (!match) {
-      // Try alternate pattern
       const match2 = r.body.match(/window\.__NEXT_DATA__\s*=\s*({[\s\S]*?});/);
       if (!match2) {
         console.log('No __NEXT_DATA__ found. Body length:', r.body.length);
@@ -93,13 +96,11 @@ app.post('/spotify/playlist', async (req, res) => {
       return res.status(400).json({ error: 'Failed to parse Spotify data: ' + e.message });
     }
 
-    // Dig into the Next.js state tree — Spotify's embed structure
     const state = nextData?.props?.pageProps?.state;
     const entity = state?.data?.entity || state?.entity;
 
     const tracks = [];
 
-    // Format A: entity.trackList (most common in embed)
     if (entity?.trackList?.length) {
       for (const t of entity.trackList) {
         const name = t.title || t.name || '';
@@ -108,7 +109,6 @@ app.post('/spotify/playlist', async (req, res) => {
       }
     }
 
-    // Format B: entity.items
     if (!tracks.length && entity?.items?.length) {
       for (const item of entity.items) {
         const t = item.track || item;
@@ -118,10 +118,8 @@ app.post('/spotify/playlist', async (req, res) => {
       }
     }
 
-    // Format C: search deeper in the state tree
     if (!tracks.length) {
       const stateStr = JSON.stringify(nextData);
-      // Find any array with title+subtitle pairs (Spotify embed track format)
       const trackListMatch = stateStr.match(/"trackList":\s*(\[(?:[^[\]]*|\[(?:[^[\]]*|\[[^\]]*\])*\])*\])/);
       if (trackListMatch) {
         try {
@@ -167,8 +165,8 @@ app.get('/search', async (req, res) => {
       console.error('YouTube API error:', err.message);
     }
   }
-  const ytDlpPath = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
-  const ytdlp = spawn(ytDlpPath, [`ytsearch10:${query}`, '--get-id', '--get-title', '--skip-download']);
+  const ytDlpPath = getYtDlpPath();
+  const ytdlp = spawn(ytDlpPath, [`ytsearch10:${query}`, '--get-id', '--get-title', '--skip-download'], { shell: false });
   let out = '';
   ytdlp.stdout.on('data', d => out += d.toString());
   ytdlp.on('close', code => {
@@ -185,8 +183,8 @@ app.get('/search', async (req, res) => {
 app.get('/stream', (req, res) => {
   const videoId = req.query.id;
   if (!videoId) return res.status(400).json({ error: 'Missing video ID.' });
-  const ytDlpPath = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
-  const ytdlp = spawn(ytDlpPath, ['-o', '-', `https://www.youtube.com/watch?v=${videoId}`], { shell: true });
+  const ytDlpPath = getYtDlpPath();
+  const ytdlp = spawn(ytDlpPath, ['-o', '-', `https://www.youtube.com/watch?v=${videoId}`], { shell: false });
   res.setHeader('Content-Type', 'video/mp4');
   ytdlp.stdout.pipe(res);
   ytdlp.stderr.on('data', d => console.error('[yt-dlp stream]', d.toString()));
@@ -196,12 +194,11 @@ app.get('/stream', (req, res) => {
 /* ── Smart track resolver (Spotify → correct YouTube video) ── */
 function resolveTrackId(ytDlpPath, songTitle) {
   return new Promise((resolve, reject) => {
-    // Append "official audio" to strongly prefer the real song over reaction/cover videos
     const ytdlp = spawn(ytDlpPath, [
       `ytsearch5:${songTitle} official audio`,
       '--get-id', '--get-title', '--get-duration',
       '--skip-download', '--no-playlist'
-    ]);
+    ], { shell: false });
 
     let out = '';
     ytdlp.stdout.on('data', d => out += d.toString());
@@ -209,7 +206,6 @@ function resolveTrackId(ytDlpPath, songTitle) {
       const lines = out.trim().split('\n').filter(Boolean);
       const results = [];
 
-      // yt-dlp outputs: title / id / duration — repeating per result
       for (let i = 0; i + 2 < lines.length; i += 3) {
         results.push({
           title: lines[i].trim(),
@@ -220,7 +216,6 @@ function resolveTrackId(ytDlpPath, songTitle) {
 
       if (!results.length) return reject(new Error('No results found'));
 
-      // Score each result — pick the most likely official song
       const scored = results.map(r => {
         const t = r.title.toLowerCase();
         let score = 0;
@@ -234,8 +229,8 @@ function resolveTrackId(ytDlpPath, songTitle) {
         if (t.includes('remix'))           score -= 4;
         if (t.includes('live'))            score -= 3;
         if (t.includes('karaoke'))         score -= 8;
-        if (r.duration > 600)              score -= 8;  // >10 min = likely not a single
-        if (r.duration < 60)               score -= 5;  // <1 min = likely a clip
+        if (r.duration > 600)              score -= 8;
+        if (r.duration < 60)               score -= 5;
         return { ...r, score };
       });
 
@@ -255,10 +250,9 @@ app.get('/download', async (req, res) => {
   const title = req.query.title;
   if (!videoId) return res.status(400).json({ error: 'Missing video ID.' });
 
-  const ytDlpPath = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+  const ytDlpPath = getYtDlpPath();
   const safeTitle = (title || 'audio').replace(/[^a-zA-Z0-9 \-_]/g, '').trim() || 'audio';
 
-  // Spotify imports store "Song Name Artist" as the ID — resolve to real YouTube video ID
   if (videoId.includes(' ')) {
     console.log(`🔍 Resolving Spotify track: "${videoId}"`);
     try {
@@ -287,7 +281,6 @@ app.get('/download', async (req, res) => {
     ];
   }
 
-  // Try fastest first, fall back to slower but more compatible
   const attempts = [
     { args: buildArgs('tv_embedded', 'bestaudio[ext=m4a]/bestaudio'),                              ext: 'm4a', mime: 'audio/mp4',  label: 'tv_embedded' },
     { args: buildArgs('mweb',        'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio'),           ext: 'm4a', mime: 'audio/mp4',  label: 'mweb'        },
@@ -306,7 +299,7 @@ app.get('/download', async (req, res) => {
     const attempt = attempts[attemptIndex++];
     console.log(`  → Trying ${attempt.label}...`);
 
-    const ytdlp = spawn(ytDlpPath, attempt.args, { shell: true });
+    const ytdlp = spawn(ytDlpPath, attempt.args, { shell: false });
     let hasData = false;
     let headersSent = false;
 
